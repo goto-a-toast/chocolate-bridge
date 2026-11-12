@@ -1,6 +1,7 @@
-venv/
+venv
 __pycache__/
 *.pyc
 bridge.log
+bridge.log.old
 *.zip
 .DS_Store

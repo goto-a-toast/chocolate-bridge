@@ -28,7 +28,12 @@ bash install.sh
 
 Python 環境の作成、ログイン時の自動起動の登録、起動までを行います。
 Python が無いと言われたら、先に `xcode-select --install` を実行してください。
-フォルダを移動したら `bash install.sh` をもう一度実行します。解除は `bash uninstall.sh` です。
+
+macOS はデスクトップや書類フォルダを裏で動くプログラムから保護しているため、
+実際に動くプログラムは `~/Library/Application Support/chocolate-bridge` に配置されます。
+クローンしたフォルダはどこに置いても構いません。
+更新するときは `git pull` のあと `bash install.sh` をもう一度実行します。
+解除は `bash uninstall.sh` です。
 
 ## ペダルの準備（初回のみ、USB 接続で）
 
@@ -78,7 +83,8 @@ Python が無いと言われたら、先に `xcode-select --install` を実行�
 | `trs.py` | TRS ジャックの切り替え |
 | `install.sh` / `uninstall.sh` | 自動起動の登録と解除 |
 
-ログはこのフォルダの `bridge.log` に出ます。
+ログは `~/Library/Application Support/chocolate-bridge/bridge.log` に出ます。
+インストール後はこのフォルダの `bridge.log` からも開けます。
 
 ## Credits
 
