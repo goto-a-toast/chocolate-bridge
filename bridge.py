@@ -8,10 +8,11 @@ and re-publishes its messages on a virtual MIDI port "Chocolate to Live":
 Ableton Live maps notes as toggles, so each footswitch press flips the mapped
 button.  PC-A mode: group g (1..8), switch A..D  ->  PC (g-1)*4 + (0..3).
 
-Port selection: the first match in DEVICE_MATCHES wins, so USB ("SINCO") is
-preferred over Bluetooth ("FootCtrl" etc.).  If a better port appears while a
-worse one is in use, the bridge switches over; only one port is ever open, so
-a pedal connected by cable and Bluetooth at once does not double-trigger.
+Port selection: every port matching DEVICE_MATCHES is opened at once.  When
+the pedal is paired over Bluetooth it may send only there even though the USB
+port ("SINCO") still exists, so listening to a single "preferred" port can
+miss every press.  If the pedal does send the same message on both links, the
+copy arriving within DEDUP_WINDOW is dropped, so nothing double-triggers.
 """
 import time, threading
 import rtmidi
@@ -22,35 +23,36 @@ DEVICE_MATCHES = ["SINCO", "FootCtrl", "M-VAVE", "MVAVE", "Chocolate", "CUVAVE"]
 NOTE_BASE = 36          # PC 0 -> note 36 (C1 in Live's naming)
 NOTE_LEN = 0.03         # seconds between Note On and Note Off
 POLL = 2.0              # seconds between port scans
+DEDUP_WINDOW = 0.1      # seconds; identical messages from another link are dropped
 
 
 def log(*a):
     print(time.strftime("%H:%M:%S"), *a, flush=True)
 
 
-def rank(name):
-    """Priority of a port name (lower is better), or None if not the pedal."""
-    if OUT_NAME.lower() in name.lower():      # never listen to our own output
-        return None
-    for i, key in enumerate(DEVICE_MATCHES):
-        if key.lower() in name.lower():
-            return i
-    return None
-
-
-def best_port(names):
-    """Return (index, name, rank) of the preferred pedal port, or (None, None, None)."""
-    found = [(rank(n), i, n) for i, n in enumerate(names) if rank(n) is not None]
-    if not found:
-        return None, None, None
-    r, i, n = min(found)
-    return i, n, r
+def is_pedal(name):
+    """True if the port name looks like the pedal (and is not our own output)."""
+    low = name.lower()
+    if OUT_NAME.lower() in low:                # never listen to our own output
+        return False
+    return any(key.lower() in low for key in DEVICE_MATCHES)
 
 
 def make_handler(out):
-    def on_midi(event, _):
+    lock = threading.Lock()
+    last = {}                                   # message bytes -> (time, port)
+
+    def is_duplicate(msg, port):
+        """Same message from a different port within DEDUP_WINDOW = one press on two links."""
+        key, now = tuple(msg), time.monotonic()
+        with lock:
+            prev = last.get(key)
+            last[key] = (now, port)
+            return prev is not None and prev[1] != port and now - prev[0] < DEDUP_WINDOW
+
+    def on_midi(event, port):
         msg, _dt = event
-        if not msg:
+        if not msg or is_duplicate(msg, port):
             return
         status = msg[0] & 0xF0
         ch = msg[0] & 0x0F
@@ -61,10 +63,10 @@ def make_handler(out):
                 return
             out.send_message([0x90 | ch, note, 127])
             threading.Timer(NOTE_LEN, out.send_message, args=([0x80 | ch, note, 0],)).start()
-            log(f"PC {pc} (group {pc // 4 + 1}, switch {'ABCD'[pc % 4]}) -> note {note}")
+            log(f"PC {pc} (group {pc // 4 + 1}, switch {'ABCD'[pc % 4]}) -> note {note}  [{port}]")
         elif status != 0xF0:      # pass through notes/CC etc., drop sysex/realtime
             out.send_message(msg)
-            log("passthrough", " ".join(f"{b:02X}" for b in msg))
+            log("passthrough", " ".join(f"{b:02X}" for b in msg), f"[{port}]")
     return on_midi
 
 
@@ -74,26 +76,23 @@ def main():
     log(f"virtual port '{OUT_NAME}' created")
     handler = make_handler(out)
 
-    midi_in, cur_name, cur_rank = None, None, None
+    opened = {}                                 # port name -> MidiIn
     while True:
         names = rtmidi.MidiIn().get_ports()
-        idx, name, r = best_port(names)
 
-        lost = midi_in is not None and cur_name not in names
-        better = midi_in is not None and r is not None and r < cur_rank
-        if lost or better:
-            log(("device disconnected: " if lost else "switching from ") + f"'{cur_name}'")
-            midi_in.close_port()
-            midi_in, cur_name, cur_rank = None, None, None
+        for name in [n for n in opened if n not in names]:
+            opened.pop(name).close_port()
+            log(f"device disconnected: '{name}'")
 
-        if midi_in is None and idx is not None:
+        for idx, name in enumerate(names):
+            if name in opened or not is_pedal(name):
+                continue
             midi_in = rtmidi.MidiIn()
             midi_in.ignore_types(sysex=True, timing=True, active_sense=True)
             midi_in.open_port(idx)
-            midi_in.set_callback(handler)
-            cur_name, cur_rank = name, r
-            kind = "USB" if r == 0 else "Bluetooth"
-            log(f"connected to '{name}' ({kind})")
+            midi_in.set_callback(handler, name)
+            opened[name] = midi_in
+            log(f"connected to '{name}'")
         time.sleep(POLL)
 
 
