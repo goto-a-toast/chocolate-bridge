@@ -20,7 +20,13 @@ fi
 
 echo "[1/4] プログラムを配置: $APP"
 mkdir -p "$APP"
-cp "$SRC/bridge.py" "$SRC/choc.py" "$SRC/trs.py" "$APP/"
+cp "$SRC/bridge.py" "$SRC/choc.py" "$SRC/trs.py" "$SRC/pedalboard.html" "$APP/"
+# Live remote script for the pedalboard page (Live 11+ reads User Library/Remote Scripts).
+LIVE_SCRIPTS="${LIVE_SCRIPTS_DIR:-$HOME/Music/Ableton/User Library/Remote Scripts}"
+mkdir -p "$LIVE_SCRIPTS"
+rm -rf "$LIVE_SCRIPTS/ChocolatePedalboard"
+cp -R "$SRC/live_script/ChocolatePedalboard" "$LIVE_SCRIPTS/"
+echo "      Live 用スクリプト: $LIVE_SCRIPTS/ChocolatePedalboard"
 
 echo "[2/4] Python 環境を作成 ($PY)"
 rm -rf "$APP/venv"
@@ -65,3 +71,4 @@ launchctl bootstrap "gui/$(id -u)" "$PLIST"
 sleep 4
 tail -2 "$APP/bridge.log" || true
 echo "完了。Live の環境設定で入力「Chocolate to Live」の Remote を On にしてください。"
+echo "ペダルボード画面: http://localhost:8765/ （README の「ペダルボード画面」を参照）"

@@ -22,7 +22,8 @@ port ("SINCO") still exists, so listening to a single "preferred" port can
 miss every press.  If the pedal does send the same message on both links, the
 copy arriving within DEDUP_WINDOW is dropped, so nothing double-triggers.
 """
-import time, threading
+import json, os, socket, time, threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import rtmidi
 
 OUT_NAME = "Chocolate to Live"
@@ -35,6 +36,10 @@ DEDUP_WINDOW = 0.1      # seconds; identical messages from another link are drop
 GROUPS = 8              # groups in PC-A mode
 PREV_CC, NEXT_CC = 2, 3 # what the pedal sends on A+B / C+D
 GROUP_CC = 102          # CC the bridge sends to Live when the group changes
+STATE_PORT = 9020       # UDP, JSON state from the ChocolatePedalboard Live script
+PAGE_PORT = 8765        # http://localhost:8765/ = the pedalboard page
+LIVE_TIMEOUT = 3.0      # seconds without state -> page shows "Live not connected"
+PAGE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pedalboard.html")
 
 
 def log(*a):
@@ -95,7 +100,83 @@ def make_handler(out):
     return on_midi
 
 
+class Board:
+    """Latest pedalboard state from Live, shared between the UDP and HTTP threads."""
+    def __init__(self):
+        self.cond = threading.Condition()
+        self.state, self.stamp, self.version = None, 0.0, 0
+
+    def update(self, state):
+        with self.cond:
+            if state != self.state:
+                self.state, self.version = state, self.version + 1
+            self.stamp = time.monotonic()
+            self.cond.notify_all()
+
+    def snapshot(self):
+        live = self.state is not None and time.monotonic() - self.stamp < LIVE_TIMEOUT
+        return dict(self.state or {}, live=live)
+
+
+def serve_state(board, port=STATE_PORT):
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.bind(("127.0.0.1", port))
+    while True:
+        data, _ = sock.recvfrom(65536)
+        try:
+            board.update(json.loads(data.decode("utf-8")))
+        except ValueError:
+            pass
+
+
+def make_page_handler(board):
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, *a):          # keep bridge.log for MIDI
+            pass
+
+        def do_GET(self):
+            if self.path in ("/", "/index.html"):
+                with open(PAGE_FILE, "rb") as f:
+                    body = f.read()
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+            elif self.path == "/events":
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream")
+                self.send_header("Cache-Control", "no-cache")
+                self.end_headers()
+                seen = -1
+                try:
+                    while True:  # on every change, and once a second so "live" can time out
+                        with board.cond:
+                            board.cond.wait_for(lambda: board.version != seen, timeout=1.0)
+                            seen, snap = board.version, board.snapshot()
+                        self.wfile.write(b"data: " + json.dumps(snap, ensure_ascii=False).encode("utf-8") + b"\n\n")
+                        self.wfile.flush()
+                except (BrokenPipeError, ConnectionResetError):
+                    pass
+            else:
+                self.send_error(404)
+    return Handler
+
+
+def start_display(board):
+    """Pedalboard page + state receiver.  Failure here must not stop the MIDI bridge."""
+    try:
+        threading.Thread(target=serve_state, args=(board,), daemon=True).start()
+        httpd = ThreadingHTTPServer(("127.0.0.1", PAGE_PORT), make_page_handler(board))
+        httpd.daemon_threads = True
+        threading.Thread(target=httpd.serve_forever, daemon=True).start()
+        log(f"pedalboard page: http://localhost:{PAGE_PORT}/")
+    except OSError as e:
+        log(f"pedalboard page disabled: {e}")
+
+
 def main():
+    start_display(Board())
     out = rtmidi.MidiOut()
     out.open_virtual_port(OUT_NAME)
     log(f"virtual port '{OUT_NAME}' created")

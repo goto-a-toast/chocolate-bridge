@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pedalboard</title>
+<style>
+  :root {
+    --bg: #111214; --panel: #1b1d21; --edge: #2c2f35; --ink: #f2f2f0; --quiet: #8b8f97;
+    --on: #3ee07a; --on-glow: rgba(62, 224, 122, .45); --off: #3a3d44; --warn: #f0b429;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink);
+    font-family: -apple-system, "Hiragino Sans", "Hiragino Kaku Gothic ProN", system-ui, sans-serif; }
+  body { display: flex; flex-direction: column; padding: 24px 32px; gap: 24px; }
+  header { display: flex; align-items: baseline; gap: 20px; }
+  #num { font-size: clamp(48px, 10vw, 120px); font-weight: 800; line-height: 1; color: var(--quiet); }
+  #preset { font-size: clamp(32px, 6vw, 80px); font-weight: 700; line-height: 1.1; }
+  #track { margin-left: auto; color: var(--quiet); font-size: 14px; }
+  #board { flex: 1; display: grid; gap: 20px;
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); align-content: center; }
+  .pedal { background: var(--panel); border: 2px solid var(--edge); border-radius: 18px;
+    padding: 22px 18px 26px; display: flex; flex-direction: column; align-items: center; gap: 16px;
+    transition: border-color .12s, box-shadow .12s; min-height: 220px; }
+  .pedal.on { border-color: var(--on); box-shadow: 0 0 28px var(--on-glow); }
+  .led { width: 34px; height: 34px; border-radius: 50%; background: var(--off); transition: background .12s, box-shadow .12s; }
+  .pedal.on .led { background: var(--on); box-shadow: 0 0 22px var(--on); }
+  .name { font-size: clamp(20px, 2.6vw, 32px); font-weight: 700; text-align: center; word-break: break-word; }
+  .state { font-size: 15px; font-weight: 700; letter-spacing: .12em; color: var(--quiet); }
+  .pedal.on .state { color: var(--on); }
+  .switch { margin-top: auto; width: 56px; height: 56px; border-radius: 50%; border: 3px solid var(--edge);
+    display: grid; place-items: center; font-size: 22px; font-weight: 800; color: var(--quiet); }
+  .switch.none { visibility: hidden; }
+  footer { display: flex; gap: 10px; flex-wrap: wrap; }
+  .chain { padding: 8px 14px; border-radius: 10px; border: 1px solid var(--edge); color: var(--quiet); font-size: 15px; }
+  .chain.active { border-color: var(--ink); color: var(--ink); font-weight: 700; }
+  #msg { display: none; position: fixed; inset: 0; background: rgba(17, 18, 20, .92);
+    align-items: center; justify-content: center; text-align: center; padding: 32px;
+    font-size: clamp(20px, 3vw, 30px); line-height: 1.6; color: var(--warn); }
+  #msg.show { display: flex; }
+  @media (max-width: 600px) { body { padding: 16px; } #board { grid-template-columns: repeat(2, 1fr); gap: 12px; } .pedal { min-height: 170px; } }
+</style>
+</head>
+<body>
+<header>
+  <div id="num">–</div>
+  <div id="preset">…</div>
+  <div id="track"></div>
+</header>
+<main id="board"></main>
+<footer id="chains"></footer>
+<div id="msg" class="show">接続中…</div>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+function render(s) {
+  const msg = $('msg');
+  if (!s.live) {
+    msg.innerHTML = 'Live に接続されていません<br><small>Live を起動し、コントロールサーフェスで ChocolatePedalboard を選んでください</small>';
+    msg.classList.add('show'); return;
+  }
+  if (!s.rack) {
+    msg.innerHTML = '「Pedalboard」という名前のラックが見つかりません<br><small>Audio Effect Rack の名前を Pedalboard にしてください</small>';
+    msg.classList.add('show'); return;
+  }
+  msg.classList.remove('show');
+  const i = s.active;
+  $('num').textContent = i == null ? '–' : i + 1;
+  $('preset').textContent = i == null ? '（チェーンなし）' : s.chains[i];
+  $('track').textContent = s.track;
+  $('board').innerHTML = s.pedals.map(p => `
+    <div class="pedal ${p.on ? 'on' : ''}">
+      <div class="led"></div>
+      <div class="name">${esc(p.name)}</div>
+      <div class="state">${p.on ? 'ON' : 'OFF'}</div>
+      <div class="switch ${p.switch ? '' : 'none'}">${esc(p.switch || '')}</div>
+    </div>`).join('');
+  $('chains').innerHTML = s.chains.map((c, n) =>
+    `<div class="chain ${n === i ? 'active' : ''}">${n + 1} ${esc(c)}</div>`).join('');
+}
+
+function connect() {
+  const es = new EventSource('/events');
+  es.onmessage = e => render(JSON.parse(e.data));
+  es.onerror = () => {
+    $('msg').innerHTML = 'ブリッジに接続できません<br><small>再接続を試みています…</small>';
+    $('msg').classList.add('show');
+  };  // EventSource reconnects by itself
+}
+connect();
+</script>
+</body>
+</html>
