@@ -12,7 +12,17 @@ Notes from the footswitches are not touched here; map them to the devices'
 on/off buttons with Live's MIDI Map Mode as usual.
 """
 import json
+import os
 import socket
+import sys
+import time
+
+# Diagnostic: proves Live imported this package (Live writes no log line for that).
+try:
+    with open(os.path.expanduser("~/Library/Application Support/chocolate-bridge/live_script.txt"), "a") as _f:
+        _f.write("%s imported by Python %s\n" % (time.strftime("%Y-%m-%d %H:%M:%S"), sys.version.split()[0]))
+except Exception:
+    pass
 
 import Live
 from _Framework.ControlSurface import ControlSurface

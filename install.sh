@@ -21,8 +21,10 @@ fi
 echo "[1/4] プログラムを配置: $APP"
 mkdir -p "$APP"
 cp "$SRC/bridge.py" "$SRC/choc.py" "$SRC/trs.py" "$SRC/pedalboard.html" "$APP/"
-# Live remote script for the pedalboard page (Live 11+ reads User Library/Remote Scripts).
-LIVE_SCRIPTS="${LIVE_SCRIPTS_DIR:-$HOME/Music/Ableton/User Library/Remote Scripts}"
+# Live remote script for the pedalboard page (Live 11+ reads <User Library>/Remote Scripts).
+# The User Library can live anywhere (set in Live's Library settings), so read it from
+# the newest Live's Library.cfg; fall back to Live's default location.
+LIVE_SCRIPTS="${LIVE_SCRIPTS_DIR:-$("$PY" "$SRC/live_script/find_user_library.py")/Remote Scripts}"
 mkdir -p "$LIVE_SCRIPTS"
 rm -rf "$LIVE_SCRIPTS/ChocolatePedalboard"
 cp -R "$SRC/live_script/ChocolatePedalboard" "$LIVE_SCRIPTS/"
