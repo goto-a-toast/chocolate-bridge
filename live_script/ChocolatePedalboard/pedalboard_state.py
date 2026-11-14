@@ -67,21 +67,28 @@ def is_looper(device):
     return getattr(device, "class_name", "") == "Looper"
 
 
-def find_looper(track, rack, tracks):
-    """(looper, where): after the rack on its track is the intended spot ('track');
-    inside a chain ('chain') or on another track ('other') still works but is flagged."""
-    for d in track.devices:
-        if is_looper(d):
-            return d, "track"
-    for c in rack.chains:
-        for d in c.devices:
-            if is_looper(d):
-                return d, "chain"
+MAX_LOOPERS = 4
+
+
+def find_loopers(tracks, rack=None):
+    """Up to MAX_LOOPERS (device, track, where) in track order.  Each Looper is meant to
+    sit on its own track ('track'); one inside the Pedalboard rack ('chain') is flagged,
+    because switching presets silences it."""
+    found = []
     for t in tracks:
         for d in t.devices:
             if is_looper(d):
-                return d, "other"
-    return None, None
+                found.append((d, t, "track"))
+            elif rack is not None and d is rack:
+                for c in rack.chains:
+                    found.extend((x, t, "chain") for x in c.devices if is_looper(x))
+    return found[:MAX_LOOPERS]
+
+
+def find_looper(track, rack, tracks):
+    """First Looper (for the one-time parameter dump)."""
+    found = find_loopers(tracks, rack)
+    return (found[0][0], found[0][2]) if found else (None, None)
 
 
 def param_text(p):
@@ -166,7 +173,8 @@ def build_state(tracks):
                 continue                         # shown in its own panel
             label, name = split_label(d.name)
             pedals.append({"name": name, "switch": label, "on": device_on(d)})
-    looper, where = find_looper(track, rack, tracks)
+    loopers = []
+    for n, (dev, t, where) in enumerate(find_loopers(tracks, rack)):
+        loopers.append(dict(looper_state(dev, where), id=t.name, name=t.name, number=n + 1))
     return {"rack": rack.name, "track": track.name, "chains": chains,
-            "active": idx, "pedals": pedals,
-            "looper": looper_state(looper, where) if looper is not None else None}
+            "active": idx, "pedals": pedals, "loopers": loopers}

@@ -16,10 +16,9 @@ group CC value is group_index * 128 / GROUPS (8 groups: 0, 16, 32, ...), which
 lines up with "Distribute Ranges Equally" on a Rack's Chain Selector.  The raw
 PREV/NEXT CCs are swallowed so Live cannot learn them by mistake.
 
-Looper switch: switch D sends LOOPER_NOTE in every group instead of its own
-note, so one MIDI mapping (Looper's main button) works whatever the preset.
-Group 8 is the looper group: map its A/B/C (notes 64/65/66) to the Looper's
-Stop / Reverse / Clear.
+Loopers: groups 7 and 8 are looper groups (the Live script keeps the current
+preset sounding there).  Map group 8 A-D (notes 64-67) to the main button of
+Loop 1-4 and group 7 A-D (notes 60-63) to their Stop buttons.
 
 Port selection: every port matching DEVICE_MATCHES is opened at once.  When
 the pedal is paired over Bluetooth it may send only there even though the USB
@@ -41,8 +40,6 @@ DEDUP_WINDOW = 0.1      # seconds; identical messages from another link are drop
 GROUPS = 8              # groups in PC-A mode
 PREV_CC, NEXT_CC = 2, 3 # what the pedal sends on A+B / C+D
 GROUP_CC = 102          # CC the bridge sends to Live when the group changes
-LOOPER_SWITCH = 3       # switch D (0 = A) ...
-LOOPER_NOTE = 100       # ... sends this note in every group (E6 in Live's naming)
 STATE_PORT = 9020       # UDP, JSON state from the ChocolatePedalboard Live script
 PAGE_PORT = 8765        # http://localhost:8765/ = the pedalboard page
 LIVE_TIMEOUT = 3.0      # seconds without state -> page shows "Live not connected"
@@ -93,7 +90,7 @@ def make_handler(out, board=None):
         ch = msg[0] & 0x0F
         if status == 0xC0 and len(msg) >= 2:
             pc = msg[1]
-            note = LOOPER_NOTE if pc % 4 == LOOPER_SWITCH else NOTE_BASE + pc
+            note = NOTE_BASE + pc
             if note > 127:
                 return
             set_group(pc // 4 % GROUPS, ch, "switch")
@@ -153,12 +150,12 @@ class Board:
     def __init__(self):
         self.cond = threading.Condition()
         self.state, self.stamp, self.version = None, 0.0, 0
-        self.group, self.clock = 0, LoopClock()
+        self.group, self.clocks = 0, {}
 
     def update(self, state):
         with self.cond:
-            if state.get("looper"):
-                self.clock.update(state["looper"])
+            for lp in state.get("loopers") or []:
+                self.clocks.setdefault(lp.get("id"), LoopClock()).update(lp)
             if state != self.state:
                 self.state, self.version = state, self.version + 1
             self.stamp = time.monotonic()
@@ -172,8 +169,10 @@ class Board:
     def snapshot(self):
         live = self.state is not None and time.monotonic() - self.stamp < LIVE_TIMEOUT
         snap = dict(self.state or {}, live=live, group=self.group + 1)
-        if snap.get("looper"):
-            snap["looper"] = dict(snap["looper"], clock=self.clock.snapshot())
+        if snap.get("loopers"):
+            snap["loopers"] = [dict(lp, clock=self.clocks[lp.get("id")].snapshot())
+                               if lp.get("id") in self.clocks else lp
+                               for lp in snap["loopers"]]
         return snap
 
 

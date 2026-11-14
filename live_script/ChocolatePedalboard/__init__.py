@@ -4,7 +4,9 @@ Select it in Live > Settings > Link, Tempo & MIDI as a Control Surface with
 input "Chocolate to Live".  It
   * finds the rack named "Pedalboard" on any track,
   * switches that rack's Chain Selector when the bridge sends CC 102
-    (group n -> chain n, zones distributed equally),
+    (group n -> chain n, zones distributed equally; groups 7-8 are looper
+    groups and leave the chain alone),
+  * reports up to four Loopers (one per track, in track order) as Loop 1-4,
   * reads the active chain and each device's on/off state about ten times a
     second and sends it as JSON over UDP to the bridge, which shows it on the
     pedalboard page (http://localhost:8765/).
@@ -36,7 +38,7 @@ MARKER = os.path.expanduser("~/Library/Application Support/chocolate-bridge/live
 
 CHANNEL = 0               # MIDI channel 1, as the pedal sends
 GROUP_CC = 102            # must match bridge.py
-LOOPER_GROUP = 8          # this group operates the Looper and leaves the chain alone
+LOOPER_GROUPS = (7, 8)    # these groups operate the Loopers and leave the chain alone
 STATE_ADDR = ("127.0.0.1", 9020)
 HEARTBEAT_TICKS = 10      # update_display runs ~every 100 ms -> resend each ~1 s
 
@@ -61,9 +63,9 @@ class ChocolatePedalboard(ControlSurface):
 
     def _on_group(self, value):
         group = group_from_cc(value)
-        if group == LOOPER_GROUP - 1:
-            # The looper group only operates the Looper; keep the current preset sounding.
-            self.show_message("Pedalboard: looper controls (group %d)" % LOOPER_GROUP)
+        if group + 1 in LOOPER_GROUPS:
+            # Looper groups only operate the Loopers; keep the current preset sounding.
+            self.show_message("Pedalboard: looper controls (group %d)" % (group + 1))
             return
         _track, rack = find_rack(self.song().tracks)
         if rack is None or not rack.chains:
