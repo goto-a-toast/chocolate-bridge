@@ -19,7 +19,7 @@ import time
 
 # Diagnostic: proves Live imported this package (Live writes no log line for that).
 try:
-    with open(os.path.expanduser("~/Library/Application Support/chocolate-bridge/live_script.txt"), "a") as _f:
+    with open(os.path.expanduser("~/Library/Application Support/chocolate-bridge/live_script.txt"), "a") as _f:  # MARKER
         _f.write("%s imported by Python %s\n" % (time.strftime("%Y-%m-%d %H:%M:%S"), sys.version.split()[0]))
 except Exception:
     pass
@@ -29,7 +29,10 @@ from _Framework.ControlSurface import ControlSurface
 from _Framework.EncoderElement import EncoderElement
 from _Framework.InputControlElement import MIDI_CC_TYPE
 
-from .pedalboard_state import build_state, find_rack, group_from_cc, selector_value_for
+from .pedalboard_state import (build_state, describe_params, find_looper, find_rack,
+                               group_from_cc, selector_value_for)
+
+MARKER = os.path.expanduser("~/Library/Application Support/chocolate-bridge/live_script.txt")
 
 CHANNEL = 0               # MIDI channel 1, as the pedal sends
 GROUP_CC = 102            # must match bridge.py
@@ -52,6 +55,7 @@ class ChocolatePedalboard(ControlSurface):
         self._sock.setblocking(False)
         self._last = None
         self._ticks = 0
+        self._looper_described = False
         self.log_message("ChocolatePedalboard ready")
 
     def _on_group(self, value):
@@ -66,9 +70,30 @@ class ChocolatePedalboard(ControlSurface):
                 break
         self.show_message("Pedalboard: %d %s" % (index + 1, rack.chains[index].name))
 
+    def _describe_looper_once(self):
+        """Write the Looper's real parameter names and display texts to the marker file."""
+        if self._looper_described:
+            return
+        track, rack = find_rack(self.song().tracks)
+        if rack is None:
+            return
+        looper, where = find_looper(track, rack, self.song().tracks)
+        if looper is None:
+            return
+        self._looper_described = True
+        try:
+            with open(MARKER, "a") as f:
+                f.write("Looper (%s) parameters:\n%s\n" % (where, describe_params(looper)))
+        except Exception:
+            pass
+
     def update_display(self):
         ControlSurface.update_display(self)
         self._ticks += 1
+        try:
+            self._describe_looper_once()
+        except Exception:
+            pass
         try:
             state = json.dumps(build_state(self.song().tracks), ensure_ascii=False)
         except Exception as e:  # a device deleted mid-read, etc.; try again next tick

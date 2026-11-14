@@ -16,6 +16,11 @@ group CC value is group_index * 128 / GROUPS (8 groups: 0, 16, 32, ...), which
 lines up with "Distribute Ranges Equally" on a Rack's Chain Selector.  The raw
 PREV/NEXT CCs are swallowed so Live cannot learn them by mistake.
 
+Looper switch: switch D sends LOOPER_NOTE in every group instead of its own
+note, so one MIDI mapping (Looper's main button) works whatever the preset.
+Group 8 is the looper group: map its A/B/C (notes 64/65/66) to the Looper's
+Stop / Reverse / Clear.
+
 Port selection: every port matching DEVICE_MATCHES is opened at once.  When
 the pedal is paired over Bluetooth it may send only there even though the USB
 port ("SINCO") still exists, so listening to a single "preferred" port can
@@ -36,6 +41,8 @@ DEDUP_WINDOW = 0.1      # seconds; identical messages from another link are drop
 GROUPS = 8              # groups in PC-A mode
 PREV_CC, NEXT_CC = 2, 3 # what the pedal sends on A+B / C+D
 GROUP_CC = 102          # CC the bridge sends to Live when the group changes
+LOOPER_SWITCH = 3       # switch D (0 = A) ...
+LOOPER_NOTE = 100       # ... sends this note in every group (E6 in Live's naming)
 STATE_PORT = 9020       # UDP, JSON state from the ChocolatePedalboard Live script
 PAGE_PORT = 8765        # http://localhost:8765/ = the pedalboard page
 LIVE_TIMEOUT = 3.0      # seconds without state -> page shows "Live not connected"
@@ -54,7 +61,7 @@ def is_pedal(name):
     return any(key.lower() in low for key in DEVICE_MATCHES)
 
 
-def make_handler(out):
+def make_handler(out, board=None):
     lock = threading.Lock()
     last = {}                                   # message bytes -> (time, port)
 
@@ -75,6 +82,8 @@ def make_handler(out):
             value = g * 128 // GROUPS
             out.send_message([0xB0 | ch, GROUP_CC, value])
             log(f"group {g + 1} ({why}) -> CC {GROUP_CC} = {value}")
+            if board is not None:
+                board.set_group(g)
 
     def on_midi(event, port):
         msg, _dt = event
@@ -84,7 +93,7 @@ def make_handler(out):
         ch = msg[0] & 0x0F
         if status == 0xC0 and len(msg) >= 2:
             pc = msg[1]
-            note = NOTE_BASE + pc
+            note = LOOPER_NOTE if pc % 4 == LOOPER_SWITCH else NOTE_BASE + pc
             if note > 127:
                 return
             set_group(pc // 4 % GROUPS, ch, "switch")
@@ -100,22 +109,72 @@ def make_handler(out):
     return on_midi
 
 
+class LoopClock:
+    """Estimates the Looper's length and play position from its state changes.
+
+    Live does not expose either, so: length = time from Record to the first
+    Play/Overdub (scaled to speed 1); position advances at speed * direction
+    while playing or overdubbing; Stop rewinds to the start.  State arrives at
+    least once a second, so the estimate is piecewise exact between changes.
+    """
+    def __init__(self):
+        self.length, self.phase, self.rec_start = None, 0.0, None
+        self.prev, self.rate, self.t = None, 1.0, time.monotonic()
+
+    def _advanced(self, now):
+        if self.prev in ("play", "overdub") and self.length:
+            return (self.phase + (now - self.t) * self.rate / self.length) % 1.0
+        return self.phase
+
+    def update(self, looper, now=None):
+        now = time.monotonic() if now is None else now
+        state = looper.get("state")
+        rate = looper.get("factor", 1.0) * (-1.0 if looper.get("reverse") else 1.0)
+        self.phase, self.t = self._advanced(now), now
+        if state == "record" and self.prev != "record":
+            self.rec_start, self.length, self.phase = now, None, 0.0
+        elif self.prev == "record" and state in ("play", "overdub") and self.rec_start is not None:
+            self.length, self.phase = (now - self.rec_start) * abs(self.rate), 0.0
+        elif state == "stop":
+            self.phase = 0.0
+        self.prev, self.rate = state, rate
+
+    def snapshot(self, now=None):
+        now = time.monotonic() if now is None else now
+        playing = self.prev in ("play", "overdub") and bool(self.length)
+        recording = now - self.rec_start if self.prev == "record" and self.rec_start is not None else None
+        return {"length": self.length, "phase": self._advanced(now),
+                "rate": self.rate if playing else 0.0, "recording": recording}
+
+
 class Board:
-    """Latest pedalboard state from Live, shared between the UDP and HTTP threads."""
+    """Latest pedalboard state from Live (+ the bridge's own group count),
+    shared between the MIDI, UDP and HTTP threads."""
     def __init__(self):
         self.cond = threading.Condition()
         self.state, self.stamp, self.version = None, 0.0, 0
+        self.group, self.clock = 0, LoopClock()
 
     def update(self, state):
         with self.cond:
+            if state.get("looper"):
+                self.clock.update(state["looper"])
             if state != self.state:
                 self.state, self.version = state, self.version + 1
             self.stamp = time.monotonic()
             self.cond.notify_all()
 
+    def set_group(self, g):
+        with self.cond:
+            self.group, self.version = g, self.version + 1
+            self.cond.notify_all()
+
     def snapshot(self):
         live = self.state is not None and time.monotonic() - self.stamp < LIVE_TIMEOUT
-        return dict(self.state or {}, live=live)
+        snap = dict(self.state or {}, live=live, group=self.group + 1)
+        if snap.get("looper"):
+            snap["looper"] = dict(snap["looper"], clock=self.clock.snapshot())
+        return snap
 
 
 def serve_state(board, port=STATE_PORT):
@@ -176,11 +235,12 @@ def start_display(board):
 
 
 def main():
-    start_display(Board())
+    board = Board()
+    start_display(board)
     out = rtmidi.MidiOut()
     out.open_virtual_port(OUT_NAME)
     log(f"virtual port '{OUT_NAME}' created")
-    handler = make_handler(out)
+    handler = make_handler(out, board)
 
     opened = {}                                 # port name -> MidiIn
     while True:

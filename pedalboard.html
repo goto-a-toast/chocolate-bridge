@@ -8,29 +8,55 @@
   :root {
     --bg: #111214; --panel: #1b1d21; --edge: #2c2f35; --ink: #f2f2f0; --quiet: #8b8f97;
     --on: #3ee07a; --on-glow: rgba(62, 224, 122, .45); --off: #3a3d44; --warn: #f0b429;
+    --rec: #ff4d4d; --dub: #ff9f1c; --play: #3ee07a; --stop: #6b7079;
   }
   * { box-sizing: border-box; }
-  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink);
+  html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--ink);
     font-family: -apple-system, "Hiragino Sans", "Hiragino Kaku Gothic ProN", system-ui, sans-serif; }
-  body { display: flex; flex-direction: column; padding: 24px 32px; gap: 24px; }
-  header { display: flex; align-items: baseline; gap: 20px; }
+  body { display: flex; flex-direction: column; padding: 24px 32px; gap: 22px; min-height: 100vh; }
+  header { display: flex; align-items: baseline; gap: 20px; flex-wrap: wrap; }
   #num { font-size: clamp(48px, 10vw, 120px); font-weight: 800; line-height: 1; color: var(--quiet); }
   #preset { font-size: clamp(32px, 6vw, 80px); font-weight: 700; line-height: 1.1; }
-  #track { margin-left: auto; color: var(--quiet); font-size: 14px; }
-  #board { flex: 1; display: grid; gap: 20px;
-    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); align-content: center; }
+  #meta { margin-left: auto; color: var(--quiet); font-size: 14px; text-align: right; line-height: 1.6; }
+
+  /* looper */
+  #looper { display: none; background: var(--panel); border: 2px solid var(--edge); border-radius: 18px;
+    padding: 18px 22px; gap: 14px; flex-direction: column; --c: var(--stop); border-color: var(--c); }
+  #looper.show { display: flex; }
+  .lp-top { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+  #lpState { font-size: clamp(26px, 4vw, 44px); font-weight: 800; color: var(--c); letter-spacing: .04em; min-width: 7em; }
+  #looper.record #lpState, #looper.overdub #lpState { animation: blink 1s steps(2, start) infinite; }
+  @keyframes blink { 50% { opacity: .35; } }
+  .chip { padding: 6px 12px; border-radius: 999px; border: 1px solid var(--edge); color: var(--quiet); font-size: 15px; font-weight: 700; }
+  .chip.lit { border-color: var(--ink); color: var(--ink); }
+  #lpNext { margin-left: auto; font-size: clamp(16px, 2vw, 22px); color: var(--quiet); }
+  #lpNext b { color: var(--ink); }
+  .bar { position: relative; height: 18px; border-radius: 9px; background: var(--off); overflow: hidden; }
+  #lpFill { position: absolute; top: 0; bottom: 0; left: 0; width: 0; background: var(--c); border-radius: 9px; }
+  #lpHead { position: absolute; top: -3px; bottom: -3px; width: 4px; background: var(--ink); border-radius: 2px; display: none; }
+  .lp-foot { display: flex; justify-content: space-between; color: var(--quiet); font-size: 14px; }
+  #lpWarn { display: none; color: var(--warn); font-size: 15px; }
+
+  /* pedals */
+  #board { flex: 1; display: grid; gap: 20px; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); align-content: center; }
   .pedal { background: var(--panel); border: 2px solid var(--edge); border-radius: 18px;
-    padding: 22px 18px 26px; display: flex; flex-direction: column; align-items: center; gap: 16px;
+    padding: 22px 18px 26px; display: flex; flex-direction: column; align-items: center; gap: 14px;
     transition: border-color .12s, box-shadow .12s; min-height: 220px; }
   .pedal.on { border-color: var(--on); box-shadow: 0 0 28px var(--on-glow); }
+  .pedal.loop { --c: var(--stop); border-style: dashed; }
+  .pedal.loop.active { border-style: solid; border-color: var(--c); box-shadow: 0 0 28px color-mix(in srgb, var(--c) 45%, transparent); }
   .led { width: 34px; height: 34px; border-radius: 50%; background: var(--off); transition: background .12s, box-shadow .12s; }
   .pedal.on .led { background: var(--on); box-shadow: 0 0 22px var(--on); }
+  .pedal.loop.active .led { background: var(--c); box-shadow: 0 0 22px var(--c); }
   .name { font-size: clamp(20px, 2.6vw, 32px); font-weight: 700; text-align: center; word-break: break-word; }
-  .state { font-size: 15px; font-weight: 700; letter-spacing: .12em; color: var(--quiet); }
+  .state { font-size: 15px; font-weight: 700; letter-spacing: .12em; color: var(--quiet); text-align: center; }
   .pedal.on .state { color: var(--on); }
+  .pedal.loop.active .state { color: var(--c); }
   .switch { margin-top: auto; width: 56px; height: 56px; border-radius: 50%; border: 3px solid var(--edge);
     display: grid; place-items: center; font-size: 22px; font-weight: 800; color: var(--quiet); }
   .switch.none { visibility: hidden; }
+  #mode { display: none; color: var(--dub); font-weight: 700; font-size: 18px; }
+  #mode.show { display: block; }
   footer { display: flex; gap: 10px; flex-wrap: wrap; }
   .chain { padding: 8px 14px; border-radius: 10px; border: 1px solid var(--edge); color: var(--quiet); font-size: 15px; }
   .chain.active { border-color: var(--ink); color: var(--ink); font-weight: 700; }
@@ -38,21 +64,112 @@
     align-items: center; justify-content: center; text-align: center; padding: 32px;
     font-size: clamp(20px, 3vw, 30px); line-height: 1.6; color: var(--warn); }
   #msg.show { display: flex; }
-  @media (max-width: 600px) { body { padding: 16px; } #board { grid-template-columns: repeat(2, 1fr); gap: 12px; } .pedal { min-height: 170px; } }
+  @media (max-width: 600px) {
+    body { padding: 16px; } #board { grid-template-columns: repeat(2, 1fr); gap: 12px; } .pedal { min-height: 170px; }
+    #lpNext { margin-left: 0; width: 100%; }
+  }
 </style>
 </head>
 <body>
 <header>
   <div id="num">–</div>
   <div id="preset">…</div>
-  <div id="track"></div>
+  <div id="meta"></div>
 </header>
+
+<section id="looper">
+  <div class="lp-top">
+    <div id="lpState">■ STOP</div>
+    <div id="lpRev" class="chip">◀ REVERSE</div>
+    <div id="lpSpeed" class="chip">SPEED</div>
+    <div id="lpNext"></div>
+  </div>
+  <div class="bar"><div id="lpFill"></div><div id="lpHead"></div></div>
+  <div class="lp-foot"><span id="lpLen"></span><span>位置と長さは目安です</span></div>
+  <div id="lpWarn">Looper が Pedalboard ラックのチェーンの中にあります。プリセットを切り替えるとループが止まるので、ラックの後ろ（同じトラック）に移してください。</div>
+</section>
+
+<div id="mode">ルーパー操作モード（グループ 8）</div>
 <main id="board"></main>
 <footer id="chains"></footer>
 <div id="msg" class="show">接続中…</div>
+
 <script>
 const $ = id => document.getElementById(id);
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const LOOPER_GROUP = 8;
+
+// Looper state -> how it is shown.  NEXT = what one more press of the main button does
+// with Live's default Looper settings (record -> overdub? confirm on the real Looper).
+const LOOK = {
+  record:  { label: '● REC',      color: 'var(--rec)',  text: '録音中' },
+  overdub: { label: '● OVERDUB',  color: 'var(--dub)',  text: '重ね録り中' },
+  play:    { label: '▶ PLAY',     color: 'var(--play)', text: '再生中' },
+  stop:    { label: '■ STOP',     color: 'var(--stop)', text: '停止中' },
+  unknown: { label: '? —',        color: 'var(--stop)', text: '状態不明' },
+};
+function nextAction(state, hasLoop) {
+  if (state === 'record') return '重ね録り（オーバーダブ）';
+  if (state === 'overdub') return '再生';
+  if (state === 'play') return '重ね録り（オーバーダブ）';
+  if (state === 'stop') return hasLoop ? '再生' : '録音開始';
+  return '—';
+}
+
+let clock = null, clockAt = 0, lpState = 'unknown';
+
+function renderLooper(lp) {
+  const box = $('looper');
+  if (!lp) { box.classList.remove('show'); clock = null; return null; }
+  box.classList.add('show');
+  lpState = lp.state;
+  const look = LOOK[lp.state] || LOOK.unknown;
+  box.className = 'show ' + lp.state;
+  box.style.setProperty('--c', look.color);
+  $('lpState').textContent = look.label;
+  $('lpRev').classList.toggle('lit', lp.reverse);
+  $('lpSpeed').textContent = 'SPEED ' + (lp.speed ?? '—');
+  $('lpSpeed').classList.toggle('lit', Math.abs((lp.factor ?? 1) - 1) > 0.01);
+  const hasLoop = !!(lp.clock && lp.clock.length);
+  $('lpNext').innerHTML = `次に D を踏むと：<b>${esc(nextAction(lp.state, hasLoop))}</b>`;
+  $('lpWarn').style.display = lp.where === 'chain' ? 'block' : 'none';
+  clock = lp.clock || null; clockAt = performance.now();
+  return { look, hasLoop };
+}
+
+function tick() {
+  const fill = $('lpFill'), head = $('lpHead');
+  if (clock) {
+    const dt = (performance.now() - clockAt) / 1000;
+    if (lpState === 'record' && clock.recording != null) {
+      const sec = clock.recording + dt;          // bar fills while recording
+      fill.style.width = Math.min(100, (sec % 8) / 8 * 100) + '%';
+      head.style.display = 'none';
+      $('lpLen').textContent = `録音 ${sec.toFixed(1)} 秒`;
+    } else if (clock.length) {
+      let p = clock.phase + dt * clock.rate / clock.length;
+      p = ((p % 1) + 1) % 1;
+      fill.style.width = (p * 100) + '%';
+      head.style.display = 'block'; head.style.left = `calc(${p * 100}% - 2px)`;
+      $('lpLen').textContent = `ループ 約 ${clock.length.toFixed(1)} 秒`;
+    } else {
+      fill.style.width = '0'; head.style.display = 'none';
+      $('lpLen').textContent = lpState === 'stop' ? 'ループなし' : '長さ不明（録音から見ていないため）';
+    }
+  }
+  requestAnimationFrame(tick);
+}
+requestAnimationFrame(tick);
+
+function pedal({ name, state, switchKey, on, loop, cls }) {
+  return `
+    <div class="pedal ${on ? 'on' : ''} ${loop ? 'loop' : ''} ${cls || ''}" ${loop ? `style="--c:${loop}"` : ''}>
+      <div class="led"></div>
+      <div class="name">${esc(name)}</div>
+      <div class="state">${esc(state)}</div>
+      <div class="switch ${switchKey ? '' : 'none'}">${esc(switchKey || '')}</div>
+    </div>`;
+}
 
 function render(s) {
   const msg = $('msg');
@@ -65,17 +182,33 @@ function render(s) {
     msg.classList.add('show'); return;
   }
   msg.classList.remove('show');
+
   const i = s.active;
   $('num').textContent = i == null ? '–' : i + 1;
   $('preset').textContent = i == null ? '（チェーンなし）' : s.chains[i];
-  $('track').textContent = s.track;
-  $('board').innerHTML = s.pedals.map(p => `
-    <div class="pedal ${p.on ? 'on' : ''}">
-      <div class="led"></div>
-      <div class="name">${esc(p.name)}</div>
-      <div class="state">${p.on ? 'ON' : 'OFF'}</div>
-      <div class="switch ${p.switch ? '' : 'none'}">${esc(p.switch || '')}</div>
-    </div>`).join('');
+  $('meta').innerHTML = `グループ ${esc(s.group)}<br>${esc(s.track)}`;
+
+  const lp = renderLooper(s.looper);
+  const lpLook = lp ? lp.look : LOOK.unknown;
+  const lpActive = s.looper && s.looper.state !== 'stop' && s.looper.state !== 'unknown';
+  const mainPedal = pedal({
+    name: 'ルーパー', switchKey: 'D', loop: lpLook.color, cls: lpActive ? 'active' : '',
+    state: s.looper ? `${lpLook.text} → ${nextAction(s.looper.state, lp && lp.hasLoop)}` : 'Looper がありません',
+  });
+
+  const looperMode = s.group === LOOPER_GROUP;
+  $('mode').classList.toggle('show', looperMode);
+  if (looperMode) {
+    const rev = !!(s.looper && s.looper.reverse);
+    $('board').innerHTML =
+      pedal({ name: '停止', switchKey: 'A', state: 'STOP' }) +
+      pedal({ name: 'リバース', switchKey: 'B', on: rev, state: rev ? 'ON' : 'OFF' }) +
+      pedal({ name: 'クリア', switchKey: 'C', state: 'CLEAR' }) +
+      mainPedal;
+  } else {
+    $('board').innerHTML = s.pedals.map(p =>
+      pedal({ name: p.name, switchKey: p.switch, on: p.on, state: p.on ? 'ON' : 'OFF' })).join('') + mainPedal;
+  }
   $('chains').innerHTML = s.chains.map((c, n) =>
     `<div class="chain ${n === i ? 'active' : ''}">${n + 1} ${esc(c)}</div>`).join('');
 }
