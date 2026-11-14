@@ -141,9 +141,15 @@ def describe_params(device):
     """One line per parameter, for checking names against a real Looper."""
     lines = []
     for p in device.parameters:
-        items = list(getattr(p, "value_items", []) or [])
-        lines.append("  %s = %r [%s..%s]%s" % (p.name, param_text(p), p.min, p.max,
-                                                (" items=%s" % items) if items else ""))
+        try:
+            items = list(p.value_items) if getattr(p, "is_quantized", False) else []
+        except Exception:                        # Live raises for non-quantized params
+            items = []
+        try:
+            lines.append("  %s = %r value=%r [%s..%s]%s" % (
+                p.name, param_text(p), p.value, p.min, p.max, (" items=%s" % items) if items else ""))
+        except Exception as e:
+            lines.append("  %s: %r" % (getattr(p, "name", "?"), e))
     return "\n".join(lines)
 
 

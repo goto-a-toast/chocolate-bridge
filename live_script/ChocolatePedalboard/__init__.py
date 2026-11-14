@@ -36,6 +36,7 @@ MARKER = os.path.expanduser("~/Library/Application Support/chocolate-bridge/live
 
 CHANNEL = 0               # MIDI channel 1, as the pedal sends
 GROUP_CC = 102            # must match bridge.py
+LOOPER_GROUP = 8          # this group operates the Looper and leaves the chain alone
 STATE_ADDR = ("127.0.0.1", 9020)
 HEARTBEAT_TICKS = 10      # update_display runs ~every 100 ms -> resend each ~1 s
 
@@ -59,11 +60,16 @@ class ChocolatePedalboard(ControlSurface):
         self.log_message("ChocolatePedalboard ready")
 
     def _on_group(self, value):
+        group = group_from_cc(value)
+        if group == LOOPER_GROUP - 1:
+            # The looper group only operates the Looper; keep the current preset sounding.
+            self.show_message("Pedalboard: looper controls (group %d)" % LOOPER_GROUP)
+            return
         _track, rack = find_rack(self.song().tracks)
         if rack is None or not rack.chains:
             self.show_message("Pedalboard: no rack named 'Pedalboard'")
             return
-        index = min(group_from_cc(value), len(rack.chains) - 1)
+        index = min(group, len(rack.chains) - 1)
         for p in rack.parameters:
             if p.name == "Chain Selector":
                 p.value = selector_value_for(rack, index)
@@ -82,8 +88,12 @@ class ChocolatePedalboard(ControlSurface):
             return
         self._looper_described = True
         try:
+            text = describe_params(looper)
+        except Exception as e:
+            text = "  (could not read: %r)" % (e,)
+        try:
             with open(MARKER, "a") as f:
-                f.write("Looper (%s) parameters:\n%s\n" % (where, describe_params(looper)))
+                f.write("Looper (%s) parameters:\n%s\n" % (where, text))
         except Exception:
             pass
 
