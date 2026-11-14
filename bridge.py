@@ -18,7 +18,9 @@ PREV/NEXT CCs are swallowed so Live cannot learn them by mistake.
 
 Loopers: groups 7 and 8 are looper groups (the Live script keeps the current
 preset sounding there).  Map group 8 A-D (notes 64-67) to the main button of
-Loop 1-4 and group 7 A-D (notes 60-63) to their Stop buttons.
+Loop 1-4 (press = record/overdub/play, double press = stop) and group 7
+A-D (notes 60-63) to their Clear buttons.  Live does not report a clear, so
+a group 7 press also resets that loop's length estimate on the page.
 
 Port selection: every port matching DEVICE_MATCHES is opened at once.  When
 the pedal is paired over Bluetooth it may send only there even though the USB
@@ -40,6 +42,7 @@ DEDUP_WINDOW = 0.1      # seconds; identical messages from another link are drop
 GROUPS = 8              # groups in PC-A mode
 PREV_CC, NEXT_CC = 2, 3 # what the pedal sends on A+B / C+D
 GROUP_CC = 102          # CC the bridge sends to Live when the group changes
+CLEAR_GROUP = 6         # 0-based: group 7 = Clear Loop 1-4
 STATE_PORT = 9020       # UDP, JSON state from the ChocolatePedalboard Live script
 PAGE_PORT = 8765        # http://localhost:8765/ = the pedalboard page
 LIVE_TIMEOUT = 3.0      # seconds without state -> page shows "Live not connected"
@@ -94,6 +97,8 @@ def make_handler(out, board=None):
             if note > 127:
                 return
             set_group(pc // 4 % GROUPS, ch, "switch")
+            if board is not None and pc // 4 % GROUPS == CLEAR_GROUP:
+                board.clear_loop(pc % 4 + 1)
             out.send_message([0x90 | ch, note, 127])
             threading.Timer(NOTE_LEN, out.send_message, args=([0x80 | ch, note, 0],)).start()
             log(f"PC {pc} (group {pc // 4 + 1}, switch {'ABCD'[pc % 4]}) -> note {note}  [{port}]")
@@ -122,6 +127,9 @@ class LoopClock:
         if self.prev in ("play", "overdub") and self.length:
             return (self.phase + (now - self.t) * self.rate / self.length) % 1.0
         return self.phase
+
+    def clear(self):
+        self.length, self.phase, self.rec_start = None, 0.0, None
 
     def update(self, looper, now=None):
         now = time.monotonic() if now is None else now
@@ -159,6 +167,15 @@ class Board:
             if state != self.state:
                 self.state, self.version = state, self.version + 1
             self.stamp = time.monotonic()
+            self.cond.notify_all()
+
+    def clear_loop(self, number):
+        """Loop `number` (1-4) was cleared: forget its length."""
+        with self.cond:
+            for lp in (self.state or {}).get("loopers") or []:
+                if lp.get("number") == number and lp.get("id") in self.clocks:
+                    self.clocks[lp.get("id")].clear()
+            self.version += 1
             self.cond.notify_all()
 
     def set_group(self, g):

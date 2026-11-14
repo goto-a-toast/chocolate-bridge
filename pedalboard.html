@@ -89,7 +89,7 @@
 <script>
 const $ = id => document.getElementById(id);
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-const MAIN_GROUP = 8, STOP_GROUP = 7, SWITCHES = 'ABCD';
+const MAIN_GROUP = 8, CLEAR_GROUP = 7, SWITCHES = 'ABCD';
 
 // What one more press of a Looper's main button does with Live's default settings
 // (record -> overdub? confirm on the real Looper).
@@ -126,7 +126,7 @@ function renderLoopers(list) {
           <span class="chip ${Math.abs((lp.factor ?? 1) - 1) > 0.01 ? 'lit' : ''}">SPEED ${esc(lp.speed ?? '—')}</span>
           <span class="lp-len" id="len${n}"></span>
         </div>
-        <div class="lp-next">グループ8の ${sw} で：<b>${esc(nextAction(lp.state, hasLoop))}</b></div>
+        <div class="lp-next">グループ8の ${sw} で：<b>${esc(nextAction(lp.state, hasLoop))}</b>${lp.state === 'play' || lp.state === 'overdub' ? '（2回で停止）' : ''}</div>
         ${lp.where === 'chain' ? '<div class="lp-warn">Pedalboard ラックの中にあります。プリセットを切り替えると止まるので、専用のトラックに移してください。</div>' : ''}
       </div>`;
   }).join('');
@@ -168,14 +168,15 @@ function pedal({ name, state, switchKey, on, color }) {
     </div>`;
 }
 
-function looperPedals(list, stopMode) {
+function looperPedals(list, clearMode) {
   return SWITCHES.split('').map((sw, n) => {
     const lp = list[n];
     if (!lp) return pedal({ name: `Loop ${n + 1}`, switchKey: sw, state: 'Looper がありません' });
     const L = look(lp.state), active = lp.state !== 'stop' && lp.state !== 'unknown';
     const hasLoop = !!(lp.clock && lp.clock.length);
-    return stopMode
-      ? pedal({ name: `Loop ${n + 1} 停止`, switchKey: sw, on: active, color: L.color, state: L.text })
+    return clearMode
+      ? pedal({ name: `Loop ${n + 1} 消去`, switchKey: sw, on: hasLoop, color: L.color,
+                state: hasLoop ? `${L.text} → 消去` : 'ループなし' })
       : pedal({ name: `Loop ${n + 1}`, switchKey: sw, on: active, color: L.color,
                 state: `${L.text} → ${nextAction(lp.state, hasLoop)}` });
   }).join('');
@@ -200,11 +201,11 @@ function render(s) {
   renderLoopers(s.loopers);
 
   const mode = $('mode');
-  if (s.group === MAIN_GROUP || s.group === STOP_GROUP) {
-    const stopMode = s.group === STOP_GROUP;
-    mode.textContent = stopMode ? 'ルーパー停止（グループ 7）' : 'ルーパー録音・再生（グループ 8）';
+  if (s.group === MAIN_GROUP || s.group === CLEAR_GROUP) {
+    const clearMode = s.group === CLEAR_GROUP;
+    mode.textContent = clearMode ? 'ルーパー消去（グループ 7）' : 'ルーパー録音・再生（グループ 8）／2回踏みで停止';
     mode.classList.add('show');
-    $('board').innerHTML = looperPedals(s.loopers || [], stopMode);
+    $('board').innerHTML = looperPedals(s.loopers || [], clearMode);
   } else {
     mode.classList.remove('show');
     $('board').innerHTML = s.pedals.map(p =>
